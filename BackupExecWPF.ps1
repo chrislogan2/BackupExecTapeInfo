@@ -1,3 +1,14 @@
+# todo! 
+# add a "suggest tapes to export" button. (req. see what makes a tape "exportable", i.e. full, not appendable, overwritable til whatever, no active)
+#   means we need to make sure it isnt active which we don't have a way of doing yet but Im sure BEMCLI will find a way.
+# "specify printer, if even by name, have default in place "
+# specify credentials to connect to BE,
+# specify BE server
+# popup pane with arrow
+# print or get data button
+# wildcards? no we've gone too far.
+
+
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName System.Drawing
 
