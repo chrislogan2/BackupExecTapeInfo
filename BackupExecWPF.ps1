@@ -7,7 +7,7 @@
 # popup pane with arrow
 # print or get data button
 # wildcards? no we've gone too far.
-
+# wpf inotifyrpoperyt thing : https://smsagent.blog/2017/02/03/powershell-deepdive-wpf-data-binding-and-inotifypropertychanged/
 
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName System.Drawing
@@ -155,35 +155,79 @@ function get-tapeinfo{
 }
 
 [xml]$xaml = @"
-<Window
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    x:Name="Window" Height="580" Width="500" ResizeMode="NoResize">
-    <Grid x:Name="Grid">
+<Window 
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        Title="BackupExec TapeExplorer" Height="525" Width="460" ResizeMode="NoResize">
+        <Grid x:Name="Grid" Height="500" VerticalAlignment="Top" Margin="0,0,0,-1">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto" MinHeight="340"/>
+            <RowDefinition Height="Auto" MinHeight="210"/>
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="185"/>
+            <ColumnDefinition Width="270" x:Name = "InfoColumn" >
+                <ColumnDefinition.Style>
+                    <Style TargetType="ColumnDefinition">
+                        <Setter Property="Width" Value="*" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsColumnVisible}" Value="False">
+                                <Setter Property="Width" Value="0" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ColumnDefinition.Style>
+            </ColumnDefinition>
+            <ColumnDefinition Width="40"/>
         </Grid.ColumnDefinitions>
-        <Viewbox MaxWidth="400" MaxHeight="500" Name="VBText" StretchDirection="Both" Stretch="Fill">
-        <TextBox x:Name = "PathTextBox" AcceptsReturn="True" TextWrapping="Wrap"
-            Grid.Column="0"
-            Grid.Row="0"
+        <TextBox x:Name="PathTextBox" HorizontalAlignment="Left" Height="305" Margin="7,27,0,0" VerticalAlignment="Top" Width="144" Cursor="Arrow" FontSize="24" Text="1234" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.CanContentScroll="True" VerticalScrollBarVisibility="Auto" AcceptsReturn="True"/>
+        <Button x:Name = "ClearButton" 
+                Content="Clear Info"
+                Grid.Row="1" Margin="10,92,102,94" 
+                />
+        <Button x:Name = "PrintButton"
+                Content="Print"
+                Margin="10,18,13,162"
+                Grid.Row="1"
         />
-        </Viewbox>
-        <Button x:Name = "ValidateButton"
-            Content="Validate"
-            Grid.Column="1"
-            Grid.Row="0"
-        />
-        <Button x:Name = "RemoveButton"
-            Content="Remove"
-            Grid.Column="0"
-            Grid.Row="1"
-        />
+        <Button x:Name="InfoButton" 
+            Content="Get Info" 
+            HorizontalAlignment="Left" 
+            Margin="10,55,0,0" 
+            VerticalAlignment="Top" 
+            Width="162" Height="30" 
+            Grid.Row="1"/>
+        <Button x:Name="SettingsButton" 
+                Content="Settings" 
+                HorizontalAlignment="Left" 
+                Margin="91,92,0,0" 
+                Grid.Row="1" 
+                VerticalAlignment="Top" 
+                Width="81" Height="24" 
+                />
+        <Button x:Name="DebugButton" 
+                Content="DebugConsole" 
+                HorizontalAlignment="Left" 
+                Margin="10,120,0,0" 
+                Grid.Row="1" 
+                VerticalAlignment="Top" 
+                Height="20" Width="162"/>
+        <Label x:Name="TextBoxLabel" 
+               Content="Enter Tape Numbers:" 
+               HorizontalAlignment="Left" 
+               Margin="10,1,0,0" 
+               VerticalAlignment="Top" Width="141" Height="26"/>
+        <Button x:Name="ExpandButton" Content="&gt;" 
+                HorizontalAlignment="Left" 
+                Margin="156,132,0,0" 
+                VerticalAlignment="Top" 
+                Width="25" Height="60" 
+                FontSize="24"/>
+        <TextBox x:Name="DebugText"  Background="Transparent" BorderThickness="0" Grid.Column="1" HorizontalAlignment="Left" Margin="10,32,0,0" Grid.Row="1" TextWrapping="Wrap" VerticalAlignment="Top" Height="108" Width="249" ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Auto" IsEnabled="False" ></TextBox>
+        <Label x:Name="DebugLabel" Content="Debug Console" Grid.Column="1" HorizontalAlignment="Left" Margin="0,6,0,0" VerticalAlignment="Top" Grid.Row="1" IsEnabled="False" Height="26" Width="91" />
+        <TextBox x:Name="TapeInfoBox" Grid.Column="1" Background="Transparent" BorderThickness="0" HorizontalAlignment="Left" Margin="10,27,0,0" TextWrapping="Wrap" Text="No Info Loaded Yet." VerticalAlignment="Top" Height="305" Width="241" IsReadOnly="True" IsUndoEnabled="False" />
+        <Label Content="Tape Information:" Grid.Column="1" HorizontalAlignment="Left" Margin="40,-2,0,0" VerticalAlignment="Top" FontSize="14" FontWeight="Bold" Height="29" Width="128" />
 
     </Grid>
 </Window>
@@ -191,8 +235,22 @@ function get-tapeinfo{
 $reader = (New-Object System.Xml.XmlNodeReader $xaml)
 
 $window = [Windows.Markup.XamlReader]::Load($reader)
-$validateButton = $window.FindName("ValidateButton")
+$validateButton = $window.FindName("PrintButton")
 $pathTextBox = $window.FindName("PathTextBox")
+$Expandbutton = $window.FindName("ExpandButton")
+$infopane = $window.FindName("InfoColumn")
+$tapeinfobox = $window.findname("TapeInfoBox")
+
+$expandbutton.add_click({
+    if (-not($infopane.width -eq [system.windows.gridlength]0)) {
+        $infopane.width = 0
+        $window.width=460-250
+
+    }else {
+        $window.width=460
+        $infopane.width = 270
+    }
+})
 $ValidateButton.Add_Click({
     If(-not ($pathTextBox.Text -eq "")){
         #write-host "$($pathTextBox.text)`n Raw text`n`n"
@@ -211,4 +269,14 @@ $ValidateButton.Add_Click({
     
     }
 })
+
+$DataContext = New-Object System.Collections.ObjectModel.ObservableCollection[Object]
+$infopanestatus = [int32]1
+$datacontext.add($infopanestatus)
+$expandbutton.datacontext =$datacontext
+$Binding = New-Object System.Windows.Data.Binding
+$Binding.Path = "[0]"
+$Binding.Mode = [System.Windows.Data.BindingMode]::OneWay
+#[void][System.Windows.Data.BindingOperations]::SetBinding($expandbutton,[System.Windows.Controls.TextBox]::v, $Binding)
+
 $window.ShowDialog()
