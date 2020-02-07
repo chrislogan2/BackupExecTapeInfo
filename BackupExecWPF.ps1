@@ -93,6 +93,7 @@ function Invoke-ImagePrint {
     })
     
     $doc.Print()
+    $doc.Dispose()
    }
 
    function printlabel {
@@ -125,6 +126,7 @@ function Invoke-ImagePrint {
 
     $bmp.Save($filename) 
     Invoke-ImagePrint -printer $printer -imageName $filename -fitImageToPaper $true
+    $bmp.dispose()
     remove-item $filename -force
 }
 function get-weeknumber {
@@ -224,7 +226,7 @@ function get-tapeinfo{
                 VerticalAlignment="Top" 
                 Width="25" Height="60" 
                 FontSize="24"/>
-        <TextBox x:Name="DebugText"  Background="Transparent" BorderThickness="0" Grid.Column="1" HorizontalAlignment="Left" Margin="10,32,0,0" Grid.Row="1" TextWrapping="Wrap" VerticalAlignment="Top" Height="108" Width="249" ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Auto" IsEnabled="False" ></TextBox>
+        <TextBox x:Name="DebugText"  Background="Transparent" BorderThickness="0" Grid.Column="1" HorizontalAlignment="Left" Margin="10,32,0,0" Grid.Row="1" TextWrapping="Wrap" VerticalAlignment="Top" Height="108" Width="249" ScrollViewer.CanContentScroll="True" ScrollViewer.HorizontalScrollBarVisibility="Visible" ScrollViewer.VerticalScrollBarVisibility="Visible" IsEnabled="False" Visibility="Hidden"></TextBox>
         <Label x:Name="DebugLabel" Content="Debug Console" Grid.Column="1" HorizontalAlignment="Left" Margin="0,6,0,0" VerticalAlignment="Top" Grid.Row="1" IsEnabled="False" Height="26" Width="91" />
         <TextBox x:Name="TapeInfoBox" Grid.Column="1" Background="Transparent" BorderThickness="0" HorizontalAlignment="Left" Margin="10,27,0,0" TextWrapping="Wrap" Text="No Info Loaded Yet." VerticalAlignment="Top" Height="305" Width="241" IsReadOnly="True" IsUndoEnabled="False" />
         <Label Content="Tape Information:" Grid.Column="1" HorizontalAlignment="Left" Margin="40,-2,0,0" VerticalAlignment="Top" FontSize="14" FontWeight="Bold" Height="29" Width="128" />
@@ -236,11 +238,13 @@ $reader = (New-Object System.Xml.XmlNodeReader $xaml)
 
 $window = [Windows.Markup.XamlReader]::Load($reader)
 $validateButton = $window.FindName("PrintButton")
+$infoButton = $window.findname("InfoButton")
+$DebugButton = $window.findname("DebugButton")
 $pathTextBox = $window.FindName("PathTextBox")
 $Expandbutton = $window.FindName("ExpandButton")
 $infopane = $window.FindName("InfoColumn")
 $tapeinfobox = $window.findname("TapeInfoBox")
-
+$debugtextbox =$window.findname("DebugText")
 $expandbutton.add_click({
     if (-not($infopane.width -eq [system.windows.gridlength]0)) {
         $infopane.width = 0
@@ -251,11 +255,14 @@ $expandbutton.add_click({
         $infopane.width = 270
     }
 })
+
 $ValidateButton.Add_Click({
     If(-not ($pathTextBox.Text -eq "")){
         #write-host "$($pathTextBox.text)`n Raw text`n`n"
-
-        $parsedtext=(($pathtextbox.text).split()).replace('\s*','')| where-object {($_.length -ge 4)}
+        $tapeinfobox.text =""
+        $parsedtext = new-object System.collections.generic.list[System.string]
+        (($pathtextbox.text).split()).replace('\s*','')| where-object {($_.length -ge 4)}|foreach-object{ $parsedtext.add($_)}
+        $debugtextbox.text = $parsedtext + "`n`n" + $debugtextbox.text
         #write-host "$($parsedtext[1] -match '\s')"
         #$parsedtext | foreach-object {write-host "X: $_`n"}
         $tapeinfo =  Get-TapeInfo -tapestring $parsedtext
@@ -263,12 +270,48 @@ $ValidateButton.Add_Click({
         #debug line
         #write-host $tapeinfo.size
         
-        $tapeinfo | foreach-object { if($_.MediaSet -like "Keep Data for 4 Weeks*" ){$weekno = get-weeknumber -date $_.allocateddate;} else{ $weekno ="ME"}; write-host "Date: $($_.allocateddate)`nWeek #: $($weekno)`nNumber: $($_.Name)`n$($_.Mediaset)"}#printlabel -dateinfo $_.allocateddate -weekno $weekno -tapeno $_.number }
+        $tapeinfo | foreach-object { if($_.MediaSet -like "Keep Data for 4 Weeks*" ){$weekno = get-weeknumber -date $_.allocateddate;} else{ $weekno ="ME"};#printlabel -dateinfo $_.allocateddate -weekno $weekno -tapeno $_.number }
+        $debugtextbox.text = "Date: $($_.allocateddate)`nWeek #: $($weekno)`nNumber: $($_.Name)`n$($_.Mediaset)`n`n"+$debugtextbox.text;
+        $tapeinfobox.text += "Date: $($_.allocateddate)`nWeek #: $($weekno)`nNumber: $($_.Name)`n$($_.Mediaset)`n`n";
+    }
         $tapeinfo | foreach-object { if($_.MediaSet -like "Keep Data for 4 Weeks*" ){$weekno = get-weeknumber -date $_.allocateddate;} else{ $weekno ="ME"}; printlabel -printer "EPSON TM-T88VI Receipt" -dateinfo $_.allocateddate -weekno $weekno -tapeno ($_.name).substring(2) }
 
     
     }
 })
+$InfoButton.Add_Click({
+    If(-not ($pathTextBox.Text -eq "")){
+        #write-host "$($pathTextBox.text)`n Raw text`n`n"
+        $tapeinfobox.text =""
+        $parsedtext = new-object System.collections.generic.list[System.string]
+        (($pathtextbox.text).split()).replace('\s*','')| where-object {($_.length -ge 4)}|foreach-object{ $parsedtext.add($_)}
+        $debugtextbox.text = $parsedtext + "`n`n" + $debugtextbox.text
+        #write-host "$($parsedtext[1] -match '\s')"
+        #$parsedtext | foreach-object {write-host "X: $_`n"}
+        $tapeinfo =  Get-TapeInfo -tapestring $parsedtext
+        # dont parse it!
+        #debug line
+        #write-host $tapeinfo.size
+        
+        $tapeinfo | foreach-object { if($_.MediaSet -like "Keep Data for 4 Weeks*" ){$weekno = get-weeknumber -date $_.allocateddate;} else{ $weekno ="ME"};#printlabel -dateinfo $_.allocateddate -weekno $weekno -tapeno $_.number }
+        $debugtextbox.text = "Date: $($_.allocateddate)`nWeek #: $($weekno)`nNumber: $($_.Name)`n$($_.Mediaset)`n`n"+$debugtextbox.text;
+        $tapeinfobox.text += "Date: $($_.allocateddate)`nWeek #: $($weekno)`nNumber: $($_.Name)`n$($_.Mediaset)`n`n";
+        }
+    
+    }
+})
+
+$Debugbutton.add_Click({
+    if($debugtextbox.IsEnabled -eq "True" ){
+        $debugtextbox.IsEnabled = "False"
+        $debugtextbox.Visibility = "Hidden"
+
+    }else{
+        $debugtextbox.IsEnabled = "True"
+        $debugTextbox.visibility = "Visible"
+    }
+})
+
 
 $DataContext = New-Object System.Collections.ObjectModel.ObservableCollection[Object]
 $infopanestatus = [int32]1
