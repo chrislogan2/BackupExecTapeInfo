@@ -127,7 +127,8 @@ function Invoke-ImagePrint {
     $bmp.Save($filename) 
     Invoke-ImagePrint -printer $printer -imageName $filename -fitImageToPaper $true
     $bmp.dispose()
-    remove-item $filename -force
+    # remove-item $filename -force
+    # this doesn't seem to work
 }
 function get-weeknumber {
     param ([system.datetime]$date)
