@@ -41,7 +41,7 @@ function Invoke-ImagePrint {
     $doc.DocumentName = [System.IO.Path]::GetFileName($imageName)
    
     $doc.add_BeginPrint({
-     Write-Host "==================== $($doc.DocumentName) ===================="
+     Write-Debug "==================== $($doc.DocumentName) ===================="
     })
     
     # clean up after printing...
@@ -50,12 +50,12 @@ function Invoke-ImagePrint {
       $bitmap.Dispose()
       $bitmap = $null
      }
-     Write-Host "xxxxxxxxxxxxxxxxxxxx $($doc.DocumentName) xxxxxxxxxxxxxxxxxxxx"
+     Write-Debug "xxxxxxxxxxxxxxxxxxxx $($doc.DocumentName) xxxxxxxxxxxxxxxxxxxx"
     })
     
     # Adjust image size to fit into paper and print image
     $doc.add_PrintPage({
-     Write-Host "Printing $imageName..."
+     Write-Debug "Printing $imageName..."
     
      #$g = $_.Graphics
      $pageBounds = $_.MarginBounds
