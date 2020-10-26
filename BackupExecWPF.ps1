@@ -11,6 +11,8 @@
 
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName System.Drawing
+Add-PSSnapin VeeamPSSnapin
+# this snapin comes from installing the veeam console.
 
 
 function Invoke-ImagePrint {
@@ -128,7 +130,7 @@ function Invoke-ImagePrint {
     Invoke-ImagePrint -printer $printer -imageName $filename -fitImageToPaper $true
     $bmp.dispose()
     # remove-item $filename -force
-    # this doesn't seem to work
+    # this (remove-item) doesn't seem to work, so we will just spam TEMP with images and assume it will do cleanup.
 }
 function get-weeknumber {
     param ([system.datetime]$date)
@@ -142,27 +144,130 @@ function get-weeknumber {
      $weeknumber = [system.math]::floor(($date.day + $offset)/7)+1
      return $weeknumber
 }
+
+function Get-VeeamTapeInfo{
+    param([System.Collections.ArrayList]$tapestring=@(), $Server, [Pscredential]$Credential)
+#use tape user in keepass
+if($Credential -eq $null)
+{
+    Connect-VBRServer -server $Server
+# if we don't specify a credential we try to connect as the user.
+}else{
+# otherwise connect with pscredential object specified.
+    Connect-VBRServer -server $Server -credential $credential
+}
+    [System.Collections.ArrayList]$selected =@()
+    [System.Collections.ArrayList]$tapelist = $tapestring
+    $alltapes = get-vbrtapemedium
+    $tapelist | foreach-object{ $cur =$_; $alltapes | foreach-object{if($_.name -like "*$cur*"){$selected+=$_ | select-object Name, @{N='AllocatedDate'; E={$_.LastWriteTime}}, MediaSet,@{N='Type';E={"Veeam"}};}}}#, ExpirationDate; }}}
+
+#Properties to care about:
+#   Name -> barcode basically
+#   Barcode -> also barcode
+#   ExpirationData -> determine if Weekly, Monthly, Year-end
+#   LastWriteTime -> when tape last written ~ Allocation date
+#   MediaSet -> basically the easiest way to determine Month-end or nah.
+    write-host $selected
+Disconnect-VBRServer
+    return $selected
+}
+
+# END OF FUNCTION ->
 function get-tapeinfo{
-    param( [System.Collections.ArrayList]$tapestring)
+    param( [System.Collections.ArrayList]$tapestring, $server, [Pscredential]$Credential)
     $tapeinfo = @()
     
     [System.Collections.ArrayList]$tapelist=$tapestring
+    if ($credential){
+        $tapeinfo = invoke-command -credential $credential -argumentlist (,$tapelist) -computername $server -scriptblock {param ($tapelist); import-module bemcli;$selected = @();  $media=get-bemedia; $tapelist | foreach-object{ $cur =$_; $media | foreach-object{if($_.name -like "*$cur*"){$selected+=$_ | select-object Name, AllocatedDate, MediaSet,@{N='Type';E={"BackupExec"}}; }}}; return $selected}
+ 
+    }else{
+        $tapeinfo = invoke-command -argumentlist (,$tapelist) -computername $server -scriptblock {param ($tapelist); import-module bemcli;$selected = @();  $media=get-bemedia; $tapelist | foreach-object{ $cur =$_; $media | foreach-object{if($_.name -like "*$cur*"){$selected+=$_ | select-object Name, AllocatedDate, MediaSet,@{N='Type';E={"BackupExec"}}; }}}; return $selected}
+    }
     #write-host $tapelist
-        $tapeinfo = invoke-command -argumentlist (,$tapelist) -computername "ocibackup" -scriptblock {param ($tapelist); import-module bemcli;$selected = @();  $media=get-bemedia; $tapelist | foreach-object{ $cur =$_; $media | foreach-object{if($_.name -like "*$cur*"){$selected+=$_ | select-object Name, AllocatedDate, MediaSet; }}}; return $selected}
-        #$tapeinfo = invoke-command -argumentlist $curtape -computername "ocibackup" -scriptblock {param ($curtape); import-module bemcli; get-bemedia | where-object { $_.name -like "*$curtape*" } | select Name, AllocatedDate, MediaSet}
+               #$tapeinfo = invoke-command -argumentlist $curtape -computername "ocibackup" -scriptblock {param ($curtape); import-module bemcli; get-bemedia | where-object { $_.name -like "*$curtape*" } | select Name, AllocatedDate, MediaSet}
         
         #get-bemedia | where-object { $_.name -like "*$curtape*" } | select Name, AllocatedDate, MediaSet
     #}
     #write-host $tapeinfo[1]
     return $tapeinfo
 }
+function save-settingsfile{
+param([PSCustomObject]$SettingsObject)
+#todo! Add some settings validation to make sure we're not just chunking any old pscustomobject to disk.
+    $exist=Test-Path "$($env:appdata)\TapeExplorerCL\settings.json"
+    if(! (test-path "$($env:appdata)\TapeExplorerCL")) {
+        New-Item "$($env:appdata)\TapeExplorerCL" -itemtype directory
+    }
+    $settingsobject | convertto-json | out-file "$($env:appdata)\TapeExplorerCL\settings.json"
+}
+function Load-settingsfile{
+    $exist=Test-Path "$($env:appdata)\TapeExplorerCL\settings.json"
+    if ($exist){
+        $settingsobject = get-content "$($env:appdata)\TapeExplorerCL\settings.json" | convertfrom-json
+    }else {
+        if (! (test-path "$($env:appdata)\TapeExplorerCL")) {
+            New-Item "$($env:appdata)\TapeExplorerCL" -itemtype directory
+        }
+        $settingsobject=[PSCustomObject]@{
+            UseVeeam         = $true
+            VeeamServer      = "VeeamMgmt.oci.ad"
+            UseAltVeeamCreds = $false
+            VeeamCredential  = "~\Administrator"
 
+            UseBackupExec    = $true
+            BackupExecServer = "ocibackup.oci.ad"
+            UseAltBackupExecCreds = $false
+            BackupExecCredential = "oci\sm_backup"
+
+            PrinterName = "EPSON TM-T88VI Receipt"
+         }
+         $settingsobject | convertto-json | out-file "$($env:appdata)\TapeExplorerCL\settings.json"
+    }
+    return $settingsobject
+
+}
+
+$settingsobject =Load-settingsfile
+[xml]$settingsxaml= @"
+<Window x:Name="SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        Title="Settings" Height="320" Width="500" ResizeMode="NoResize" Opacity="1.00" AllowsTransparency="False">
+    <Grid Width="500" Height="300">
+        <CheckBox x:Name="UseAltVeeamCreds" Content="Alternate Veeam Credentials" HorizontalAlignment="Left" Margin="19,59,0,0" VerticalAlignment="Top" />
+        <TextBox x:Name="VeeamUserName" HorizontalAlignment="Left" Height="23" Margin="96,73,0,0" TextWrapping="Wrap" Text="~\Administrator" VerticalAlignment="Top" Width="120"/>
+        <CheckBox x:Name="EnableVeeam" Content="Use Veeam Server" HorizontalAlignment="Left" Margin="19,16,0,0" VerticalAlignment="Top" IsChecked="True"/>
+        <TextBox x:Name="VeeamServer" HorizontalAlignment="Left" Height="23" Margin="96,32,0,0" TextWrapping="Wrap" Text="VeeamMgmt" VerticalAlignment="Top" Width="120"/>
+        <CheckBox x:Name="UseAltBackupExecCreds" Content="Alternate BackupExec Credentials" HorizontalAlignment="Left" Margin="243,59,0,0" VerticalAlignment="Top"/>
+        <TextBox x:Name="BackupExecUser" HorizontalAlignment="Left" Height="23" Margin="320,73,0,0" TextWrapping="Wrap" Text="oci\sm_backup" VerticalAlignment="Top" Width="120"/>
+        <CheckBox x:Name="EnableBackupExec" Content="Use BackupExec Server" HorizontalAlignment="Left" Margin="243,16,0,0" VerticalAlignment="Top" IsChecked="True"/>
+        <TextBox x:Name="BackupExecServer" HorizontalAlignment="Left" Height="23" Margin="320,32,0,0" TextWrapping="Wrap" Text="ocibackup.oci.ad" VerticalAlignment="Top" Width="120"/>
+        <PasswordBox x:Name="VeeamPassword" HorizontalAlignment="Left" Margin="96,107,0,0" VerticalAlignment="Top" Width="120"/>
+        <PasswordBox x:Name="BackupExecPassword" HorizontalAlignment="Left" Margin="320,105,0,0" VerticalAlignment="Top" Width="120"/>
+        <Label x:Name="VeeamUserNameLabel" Content="Username&#xD;&#xA;" HorizontalAlignment="Left" Margin="19,72,0,0" VerticalAlignment="Top" Height="24"/>
+        <Label x:Name="VeeamPasswordLabel" Content="Password&#xA;" HorizontalAlignment="Left" Margin="19,102,0,0" VerticalAlignment="Top" Height="26"/>
+        <Label x:Name="BackupExecPasswordLabel" Content="Password&#xA;" HorizontalAlignment="Left" Margin="243,102,0,0" VerticalAlignment="Top" Height="26"/>
+        <Label x:Name="BackupExecUsernameLabel" Content="Username&#xA;" HorizontalAlignment="Left" Margin="243,72,0,0" VerticalAlignment="Top" Height="26"/>
+        <Label x:Name="BackupExecServerNameLabel" Content="Server&#xA;" HorizontalAlignment="Left" Margin="243,29,0,0" VerticalAlignment="Top" Height="26"/>
+        <Label x:Name="VeeamServerNameLabel" Content="Server&#xA;" HorizontalAlignment="Left" Margin="19,33,0,0" VerticalAlignment="Top" Height="26"/>
+        <Label x:Name="PrinterSelectLabel" Content="Printer&#xD;&#xA;" HorizontalAlignment="Left" Margin="19,176,0,0" VerticalAlignment="Top" Height="27"/>
+        <TextBox x:Name="PrinterName" HorizontalAlignment="Left" Height="23" Margin="96,180,0,0" TextWrapping="Wrap" Text="EPSON TM-T88VI Receipt" VerticalAlignment="Top" Width="190"/>
+        <Button x:Name="PrinterSelect" Content="Browse" HorizontalAlignment="Left" Margin="291,180,0,0" VerticalAlignment="Top" Width="94"/>
+        <Button x:Name="OKSettings" Content="Ok" HorizontalAlignment="Left" Margin="96,251,0,0" VerticalAlignment="Top" Width="75"/>
+        <Button x:Name="CancelSettings" Content="Cancel" HorizontalAlignment="Left" Margin="291,251,0,0" VerticalAlignment="Top" Width="75"/>
+
+    </Grid>
+</Window>
+"@
 [xml]$xaml = @"
 <Window 
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        Title="BackupExec TapeExplorer" Height="525" Width="460" ResizeMode="NoResize">
+        Title="TapeExplorer" Height="525" Width="460" ResizeMode="NoResize">
         <Grid x:Name="Grid" Height="500" VerticalAlignment="Top" Margin="0,0,0,-1">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" MinHeight="340"/>
@@ -235,9 +340,12 @@ function get-tapeinfo{
     </Grid>
 </Window>
 "@
-$reader = (New-Object System.Xml.XmlNodeReader $xaml)
+$settingsreader = (New-Object System.Xml.XmlNodeReader $settingsxaml)
 
+$reader = (New-Object System.Xml.XmlNodeReader $xaml)
+$global:creds= @()
 $window = [Windows.Markup.XamlReader]::Load($reader)
+$settingsbutton = $window.FindName("SettingsButton")
 $validateButton = $window.FindName("PrintButton")
 $infoButton = $window.findname("InfoButton")
 $DebugButton = $window.findname("DebugButton")
@@ -266,40 +374,75 @@ $ValidateButton.Add_Click({
         $debugtextbox.text = $parsedtext + "`n`n" + $debugtextbox.text
         #write-host "$($parsedtext[1] -match '\s')"
         #$parsedtext | foreach-object {write-host "X: $_`n"}
-        $tapeinfo =  Get-TapeInfo -tapestring $parsedtext
+        $tapeinfo =@()
+        $settings = Load-settingsfile
+        if($settings.UseBackupExec){
+            write-host $global:creds.type
+            if (($global:creds | where-object {$_.type -eq "BackupExec"})){
+                $tapeinfo += Get-TapeInfo -tapestring $parsedtext -credential ($global:creds | where-object {$_.type -eq "BackupExec"}).Credential -server $settings.BackupExecServer
+            }else{
+                $tapeinfo += Get-TapeInfo -tapestring $parsedtext -server $settings.BackupExecServer
+            }
+        }
+        if($settings.UseVeeam){
+            if (($global:creds | where-object {$_.type -eq "Veeam"})){
+                $tapeinfo += Get-VeeamTapeInfo -tapestring $parsedtext -credential ($global:creds | where-object {$_.type -eq "Veeam"}).Credential -Server $settings.veeamserver
+                write-host "Using Veeam, Credential"
+            }else{
+                $tapeinfo += Get-VeeamTapeInfo -tapestring $parsedtext -Server $settings.veeamserver
+                write-host "Using Veeam, no credential"
+            }
+        }
+        write-host $tapeinfo
+        #$tapeinfo =  Get-TapeInfo -tapestring $parsedtext
         # dont parse it!
         #debug line
         #write-host $tapeinfo.size
         
-        $tapeinfo | foreach-object { if($_.MediaSet -like "Keep Data for 4 Weeks*" ){$weekno = get-weeknumber -date $_.allocateddate;} else{ $weekno ="ME"};#printlabel -dateinfo $_.allocateddate -weekno $weekno -tapeno $_.number }
-        $debugtextbox.text = "Date: $($_.allocateddate)`nWeek #: $($weekno)`nNumber: $($_.Name)`n$($_.Mediaset)`n`n"+$debugtextbox.text;
-        $tapeinfobox.text += "Date: $($_.allocateddate)`nWeek #: $($weekno)`nNumber: $($_.Name)`n$($_.Mediaset)`n`n";
+        $tapeinfo | foreach-object { if(($_.MediaSet -like "Keep Data for 4 Weeks*") -or ($_.MediaSet -like "*Weekly media set*") ){$weekno = get-weeknumber -date $_.allocateddate;} else{ $weekno ="ME"};#printlabel -dateinfo $_.allocateddate -weekno $weekno -tapeno $_.number }
+        $debugtextbox.text = "Location: $($_.Type)`nDate: $($_.allocateddate)`nWeek #: $($weekno)`nNumber: $($_.Name)`n$($_.Mediaset)`n`n"+$debugtextbox.text;
+        $tapeinfobox.text += "Location: $($_.Type)`nDate: $($_.allocateddate)`nWeek #: $($weekno)`nNumber: $($_.Name)`n$($_.Mediaset)`n`n";
+        #printlabel -printer "EPSON TM-T88VI Receipt" -header "OSCO-$(($_.Type)[0])" -dateinfo $_.allocateddate -weekno $weekno -tapeno ($_.name).substring(2);
     }
-        $tapeinfo | foreach-object { if($_.MediaSet -like "Keep Data for 4 Weeks*" ){$weekno = get-weeknumber -date $_.allocateddate;} else{ $weekno ="ME"}; printlabel -printer "EPSON TM-T88VI Receipt" -dateinfo $_.allocateddate -weekno $weekno -tapeno ($_.name).substring(2) }
+        $tapeinfo | foreach-object { if(($_.MediaSet -like "Keep Data for 4 Weeks*") -or ($_.MediaSet -like "*Weekly media set*") ){$weekno = get-weeknumber -date $_.allocateddate;} else{ $weekno ="ME"}; printlabel -printer "EPSON TM-T88VI Receipt" -header "OSCO-$(($_.Type)[0])" -dateinfo $_.allocateddate -weekno $weekno -tapeno ($_.name).substring(2) }
 
     
     }
 })
 $InfoButton.Add_Click({
     If(-not ($pathTextBox.Text -eq "")){
-        #write-host "$($pathTextBox.text)`n Raw text`n`n"
         $tapeinfobox.text =""
         $parsedtext = new-object System.collections.generic.list[System.string]
         (($pathtextbox.text).split()).replace('\s*','')| where-object {($_.length -ge 4)}|foreach-object{ $parsedtext.add($_)}
         $debugtextbox.text = $parsedtext + "`n`n" + $debugtextbox.text
         #write-host "$($parsedtext[1] -match '\s')"
         #$parsedtext | foreach-object {write-host "X: $_`n"}
-        $tapeinfo =  Get-TapeInfo -tapestring $parsedtext
-        # dont parse it!
-        #debug line
-        #write-host $tapeinfo.size
-        
-        $tapeinfo | foreach-object { if($_.MediaSet -like "Keep Data for 4 Weeks*" ){$weekno = get-weeknumber -date $_.allocateddate;} else{ $weekno ="ME"};#printlabel -dateinfo $_.allocateddate -weekno $weekno -tapeno $_.number }
-        $debugtextbox.text = "Date: $($_.allocateddate)`nWeek #: $($weekno)`nNumber: $($_.Name)`n$($_.Mediaset)`n`n"+$debugtextbox.text;
-        $tapeinfobox.text += "Date: $($_.allocateddate)`nWeek #: $($weekno)`nNumber: $($_.Name)`n$($_.Mediaset)`n`n";
+        $tapeinfo =@()
+        $settings = Load-settingsfile
+        if($settings.UseBackupExec){
+            write-debug $global:creds.type
+            if (($global:creds | where-object {$_.type -eq "BackupExec"})){
+                $tapeinfo += Get-TapeInfo -tapestring $parsedtext -credential ($global:creds | where-object {$_.type -eq "BackupExec"}).Credential -server $settings.BackupExecServer
+            }else{
+                $tapeinfo += Get-TapeInfo -tapestring $parsedtext -server $settings.BackupExecServer
+            }
         }
+        if($settings.UseVeeam){
+            if (($global:creds | where-object {$_.type -eq "Veeam"})){
+                $tapeinfo += Get-VeeamTapeInfo -tapestring $parsedtext -credential ($global:creds | where-object {$_.type -eq "Veeam"}).Credential -Server $settings.veeamserver
+                write-debug "Using Veeam, Credential"
+            }else{
+                $tapeinfo += Get-VeeamTapeInfo -tapestring $parsedtext -Server $settings.veeamserver
+                write-debug "Using Veeam, no credential"
+            }
+        }
+        
+        $tapeinfo | foreach-object { if(($_.MediaSet -like "Keep Data for 4 Weeks*") -or ($_.MediaSet -like "*Weekly media set*") ){$weekno = get-weeknumber -date $_.allocateddate;} else{ $weekno ="ME"};#printlabel -dateinfo $_.allocateddate -weekno $weekno -tapeno $_.number }
+        $debugtextbox.text = "Location: $($_.Type)`nDate: $($_.allocateddate)`nWeek #: $($weekno)`nNumber: $($_.Name)`n$($_.Mediaset)`n`n"+$debugtextbox.text;
+        $tapeinfobox.text += "Location: $($_.Type)`nDate: $($_.allocateddate)`nWeek #: $($weekno)`nNumber: $($_.Name)`n$($_.Mediaset)`n`n";
     
     }
+}
 })
 
 $Debugbutton.add_Click({
@@ -312,7 +455,94 @@ $Debugbutton.add_Click({
         $debugTextbox.visibility = "Visible"
     }
 })
+$SettingsButton.add_Click({
+    $settings = Load-settingsfile
 
+    $settingsreader = (New-Object System.Xml.XmlNodeReader $settingsxaml)
+
+    $settingswindow = [Windows.Markup.XamlReader]::Load($settingsreader)
+
+    #username textbox
+    $veeamuser = $settingswindow.FindName("VeeamUserName")
+    #servername textbox
+    $veeamserver = $settingswindow.FindName("VeeamServer")
+    #boolean flag
+    $UseAltVeeamCreds = $settingswindow.FindName("UseAltVeeamCreds")
+    #boolean flag for enabling veeam
+    $enableveeam = $settingswindow.FindName("EnableVeeam")
+    #password box need to be handled differently.
+    $veeampwd = $settingswindow.FindName("VeeamPassword")
+
+    $UseAltBackupExecCreds = $settingswindow.FindName("UseAltBackupExecCreds")
+    $backupexecserver = $settingswindow.findname("BackupExecServer")
+    $BackupExecUser = $settingswindow.FindName("BackupExecUser")
+    $enablebackupexec = $settingswindow.FindName("EnableBackupExec")
+    $backupexecpwd = $settingswindow.FindName("BackupExecPassword")
+    
+    $Printerselect = $settingswindow.FindName("PrinterSelect")
+    $PrinterField = $settingswindow.FindName("PrinterName")
+    
+
+    $Okbutton = $settingswindow.FindName("OKSettings")
+    $CancelButton = $settingswindow.FindName("CancelSettings")
+
+    $enableveeam.ischecked = $settings.UseVeeam 
+    $enablebackupexec.ischecked = $settings.UseBackupExec
+    $UseAltBackupExecCreds.ischecked = $settings.UseAltBackupExecCreds
+    $UseAltVeeamCreds.IsChecked = $settings.usealtveeamcreds
+
+    $printerfield.text = $settings.printername
+    $veeamuser.text = $settings.VeeamCredential 
+    $backupexecuser.text = $settings.backupexeccredential
+    $veeamserver.text = $settings.VeeamServer
+    $backupexecserver.text = $settings.backupexecserver
+    
+    $okbutton.add_click({
+        $settings.UseVeeam = $enableveeam.ischecked
+        $settings.UseBackupExec = $enablebackupexec.ischecked
+        $settings.UseAltBackupExecCreds = $UseAltBackupExecCreds.ischecked
+        $settings.usealtveeamcreds = $UseAltVeeamCreds.IsChecked
+
+        $settings.printername = $printerfield.text
+        $settings.veeamcredential = $veeamuser.text
+        $settings.backupexeccredential = $backupexecuser.text
+        $settings.veeamserver = $veeamserver.text
+        $settings.backupexecserver = $backupexecserver.text
+
+        $credentiallist=@()
+        save-settingsfile -SettingsObject $settings
+
+        if ( $settings.useveeam -and $settings.usealtveeamcreds){
+            $veeamobj=[PSCustomObject]@{
+                Type         = "Veeam"
+                Credential   = New-Object System.Management.Automation.PSCredential ($settings.veeamcredential, $veeampwd.securepassword) 
+             }
+        }
+        if($settings.usebackupexec -and $settings.UseAltBackupExecCreds){
+            $backupexecobj=[PSCustomObject]@{
+                Type         = "BackupExec"
+                Credential   = New-Object System.Management.Automation.PSCredential ($settings.backupexeccredential, $backupexecpwd.securepassword) 
+             }
+        }
+        if($veeamobj){
+            $credentiallist+= $veeamobj
+        }
+        if($backupexecobj){
+            $credentiallist+=$backupexecobj
+        }
+        $settingswindow.close()
+        $global:creds= $credentiallist
+    })
+    $CancelButton.add_click({
+        $settingswindow.close()
+    })
+    $printerselect.add_click({
+        
+    })
+
+    $settingswindow.ShowDialog()
+
+})
 
 $DataContext = New-Object System.Collections.ObjectModel.ObservableCollection[Object]
 $infopanestatus = [int32]1
