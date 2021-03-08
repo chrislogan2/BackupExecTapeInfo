@@ -185,7 +185,7 @@ function get-tapeinfo{
         $tapeinfo = invoke-command -argumentlist (,$tapelist) -computername $server -scriptblock {param ($tapelist); import-module bemcli;$selected = @();  $media=get-bemedia; $tapelist | foreach-object{ $cur =$_; $media | foreach-object{if($_.name -like "*$cur*"){$selected+=$_ | select-object Name, AllocatedDate, MediaSet,@{N='Type';E={"BackupExec"}}; }}}; return $selected}
     }
     #write-host $tapelist
-               #$tapeinfo = invoke-command -argumentlist $curtape -computername "ocibackup" -scriptblock {param ($curtape); import-module bemcli; get-bemedia | where-object { $_.name -like "*$curtape*" } | select Name, AllocatedDate, MediaSet}
+               #$tapeinfo = invoke-command -argumentlist $curtape -computername "localhost" -scriptblock {param ($curtape); import-module bemcli; get-bemedia | where-object { $_.name -like "*$curtape*" } | select Name, AllocatedDate, MediaSet}
         
         #get-bemedia | where-object { $_.name -like "*$curtape*" } | select Name, AllocatedDate, MediaSet
     #}
@@ -211,14 +211,14 @@ function Load-settingsfile{
         }
         $settingsobject=[PSCustomObject]@{
             UseVeeam         = $true
-            VeeamServer      = "VeeamMgmt.oci.ad"
+            VeeamServer      = "veeamserver.local"
             UseAltVeeamCreds = $false
             VeeamCredential  = "~\Administrator"
 
             UseBackupExec    = $true
-            BackupExecServer = "ocibackup.oci.ad"
+            BackupExecServer = "beserver.local"
             UseAltBackupExecCreds = $false
-            BackupExecCredential = "oci\sm_backup"
+            BackupExecCredential = "local\beuser"
 
             PrinterName = "EPSON TM-T88VI Receipt"
          }
@@ -240,11 +240,11 @@ $settingsobject =Load-settingsfile
         <CheckBox x:Name="UseAltVeeamCreds" Content="Alternate Veeam Credentials" HorizontalAlignment="Left" Margin="19,59,0,0" VerticalAlignment="Top" />
         <TextBox x:Name="VeeamUserName" HorizontalAlignment="Left" Height="23" Margin="96,73,0,0" TextWrapping="Wrap" Text="~\Administrator" VerticalAlignment="Top" Width="120"/>
         <CheckBox x:Name="EnableVeeam" Content="Use Veeam Server" HorizontalAlignment="Left" Margin="19,16,0,0" VerticalAlignment="Top" IsChecked="True"/>
-        <TextBox x:Name="VeeamServer" HorizontalAlignment="Left" Height="23" Margin="96,32,0,0" TextWrapping="Wrap" Text="VeeamMgmt" VerticalAlignment="Top" Width="120"/>
+        <TextBox x:Name="VeeamServer" HorizontalAlignment="Left" Height="23" Margin="96,32,0,0" TextWrapping="Wrap" Text="veeamserver.local" VerticalAlignment="Top" Width="120"/>
         <CheckBox x:Name="UseAltBackupExecCreds" Content="Alternate BackupExec Credentials" HorizontalAlignment="Left" Margin="243,59,0,0" VerticalAlignment="Top"/>
-        <TextBox x:Name="BackupExecUser" HorizontalAlignment="Left" Height="23" Margin="320,73,0,0" TextWrapping="Wrap" Text="oci\sm_backup" VerticalAlignment="Top" Width="120"/>
+        <TextBox x:Name="BackupExecUser" HorizontalAlignment="Left" Height="23" Margin="320,73,0,0" TextWrapping="Wrap" Text="local\beuser" VerticalAlignment="Top" Width="120"/>
         <CheckBox x:Name="EnableBackupExec" Content="Use BackupExec Server" HorizontalAlignment="Left" Margin="243,16,0,0" VerticalAlignment="Top" IsChecked="True"/>
-        <TextBox x:Name="BackupExecServer" HorizontalAlignment="Left" Height="23" Margin="320,32,0,0" TextWrapping="Wrap" Text="ocibackup.oci.ad" VerticalAlignment="Top" Width="120"/>
+        <TextBox x:Name="BackupExecServer" HorizontalAlignment="Left" Height="23" Margin="320,32,0,0" TextWrapping="Wrap" Text="beserver.local" VerticalAlignment="Top" Width="120"/>
         <PasswordBox x:Name="VeeamPassword" HorizontalAlignment="Left" Margin="96,107,0,0" VerticalAlignment="Top" Width="120"/>
         <PasswordBox x:Name="BackupExecPassword" HorizontalAlignment="Left" Margin="320,105,0,0" VerticalAlignment="Top" Width="120"/>
         <Label x:Name="VeeamUserNameLabel" Content="Username&#xD;&#xA;" HorizontalAlignment="Left" Margin="19,72,0,0" VerticalAlignment="Top" Height="24"/>
