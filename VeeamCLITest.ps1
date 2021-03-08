@@ -31,6 +31,6 @@ Disconnect-VBRServer
 # Anything below here is for testing :)
 
 $veeamcreds=get-credential
-$veeamservername="Veeammgmt.oci.ad"
+$veeamservername="localhost"
 [System.Collections.ArrayList]$testtapes = @("1767","1758","1765","1771","1774","1773","1772","1740","1744","1757","1756","1764","1769","1759")
 Get-VeeamTapeInfo -server $veeamservername -tapelist $testtapes -Credential $veeamcreds
